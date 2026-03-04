@@ -1,16 +1,20 @@
 #pragma once
+#include "logger/LogEvent.h"
 #include "common/alias.h"
 #include <iostream>
 #include <string_view>
 #include <source_location>
 #include <chrono>
+#include <atomic>
+#include <thread>
+
 /**
  * @brief 日志器，用于输出日志，log用于输出日事件。Logger包含日志级别，日志器名称，创建时间，以及一个LogAppender数组。
     日志事件由 log方法输出， log方法首先判断日志级别是否达到本 Logger 的级别要求，
     如果满足则将日志事件传递给所有LogAppender进行输出，否则丢弃该条日志
  */
 
-class Appender;
+class AppenderFacade;
 class LogEvent;
 enum class LogLevel;
 
@@ -34,17 +38,17 @@ public:
 
     std::string_view getLoggerName() const {return name_;}
 
-    void setLogLevel(LogLevel::Level level) {level_ = level;}
+    void setLogLevel(LogLevel level) {level_ = level;}
 
-    LogLevel::Level getLogLevel() const {return level_;}
+    LogLevel getLogLevel() const {return level_;}
 
-    bool isLevelEnable(LogLevel::Level level) const {return level >= level_;}
+    bool isLevelEnable(LogLevel level) const {return level >= level_;}
 
 private:    
     // 日志名称
     std::string name_;
     // 日志级别
-    LogLevel::Level level_;
+    LogLevel level_;
     // Appender集合
     std::vector<Sptr<Appender>> appenders_;
     // 自动日志器ID, inline static 可以在类内初始化
@@ -53,14 +57,33 @@ private:
 
 
 // 在测试时调用的就是封装好的这个log函数，Logger的log是不对外暴露的
-inline void log(const Logger& logger, LogLevel::Level loglevel, std::source_location source_info){
-    logger.log(LogEvent {
-        logger.getLoggerName(),
-        loglevel,
-        0,
-        std::this_thread::get_id(),
-        Curthr::GetName(),
-        0,
-        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()),
-        source_info});
+// inline void log(const Logger& logger, LogLevel loglevel, std::source_location source_info){
+//     logger.log(LogEvent {
+//         logger.getLoggerName(),
+//         loglevel,
+//         0,
+//         std::this_thread::get_id(),
+//         Curthr::GetName(),
+//         0,
+//         std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()),
+//         source_info});
+// }
+
+inline void log(const Logger& logger, LogLevel loglevel, std::source_location source_info = std::source_location::current()){
+    uint32_t tid = static_cast<uint32_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
+    auto now_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    
+    // 注意：用小括号 () 显式调用构造函数，并且强制转换 string
+    LogEvent ev(
+        std::string(logger.getLoggerName()), 
+        loglevel,               
+        0,                      
+        tid,                    
+        std::string("MainThread"),           
+        now_t,                  
+        0,                      
+        source_info             
+    );
+    logger.log(ev);
+
 }

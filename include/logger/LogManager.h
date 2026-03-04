@@ -1,6 +1,6 @@
 #include "common/alias.h"
 #include "common/singleton.hpp"
-#include "common/util.h"
+#include "common/util.hpp"
 
 #include <functional>
 #include <mutex>
@@ -10,6 +10,8 @@
 #define GET_ROOT_LOGGER() LoggerMgr::GetInstance().getRoot()
 
 #define GET_LOGGER_BY_NAME(name) LoggerMgr::GetInstance().getLogger(name)
+
+using LoggerMgr = Cot::Singleton<LoggerManager>;
 
 class Logger;
 
@@ -24,8 +26,8 @@ public:
 private:
     mutable std::mutex mtx_;
     Sptr<Logger> root_;
-    std::unordered_map< std::string, Sptr<Logger>, UtilT::Hasher, std::equal_to<> > loggers_;
+    // std::unordered_map< std::string, Sptr<Logger>, UtilT::Hasher, std::equal_to<> > loggers_;
+    std::unordered_map<std::string, Sptr<Logger>> loggers_;
 };
 
-using LoggerMgr = Cot::Singleton<LoggerManager>;
 

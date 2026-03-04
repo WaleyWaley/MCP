@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <vector>
 #include <condition_variable>
-#include <print>
+#include "common/util.hpp"
 #include <latch>
 
 class AsyncLogger : public Logger {
@@ -174,7 +174,7 @@ private:
                     std::chrono::current_zone(), now
                 };
                 auto time_point_str = std::format("{:%Y-%m-%d-%H-%M-%S}", zoned_time.get_local_time());
-                std::println("Dropper log messages at {}, {} larger than buffer", time_point_str, buffers_to_process.size()-2);
+                UtilT::println("Dropper log messages at {}, {} larger than buffer", time_point_str, buffers_to_process.size()-2);
 
                 // 直接丢掉多余的日志
                 buffers_to_process.erase(buffers_to_process.begin()+2,buffers_to_process.end());

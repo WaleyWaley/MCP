@@ -1,5 +1,8 @@
 #pragma once
 #include <ostream>
+#include <vector>
+#include <memory>
+#include "logger/PatternItemProxy.hpp"
 
 class LogEvent;
 /**
@@ -34,7 +37,10 @@ public:
 
 private:
     void startParse_();
+
     std::string pattern_;
+    
     std::vector<Sptr<PatternItemFacade>> pattern_items_;
+
     bool error_ = false;
 };

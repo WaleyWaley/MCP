@@ -31,7 +31,7 @@ public:
     explicit AppenderProxy(LogFormatter fmter, Ts&&... ts) : formatter_(std::move(fmter)), impl_(std::forward<Ts>(ts)...){}
 
     // [[nodiscard]]意思是不要忽略我的返回值，如果调用者调用了这个函数，但是没有使用它的返回值。请务必给他一个警告。
-    [[nodiscard]] auto GetFormater() const -> const LogFormater&
+    [[nodiscard]] auto GetFormater() const -> const LogFormatter&
     {
         return formatter_;
     }

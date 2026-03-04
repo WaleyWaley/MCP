@@ -4,6 +4,10 @@
 #include "LogFormatter.h"
 #include <cstddef>
 #include <fstream>
+#include "common/alias.h"
+
+class LogFormatter;
+class LogEvent;
 
 
 /*=================================================LogAppender==========================================*/
@@ -17,8 +21,8 @@ public:
  */
 class RollingFileAppender{
 private:
-    static constexper size_t c_default_max_file_size = 64_mb;
-    static constexper Seconds c_default_max_time_interval = Seconds(24*60*60);  // 24小时
+    static constexpr size_t c_default_max_file_size = 64_mb;
+    static constexpr Seconds c_default_max_time_interval = Seconds(24*60*60);  // 24小时
 
     // Flush 策略相关常量
     static constexpr Seconds c_flush_seconds = Seconds(3);  // 每3秒flush一次
@@ -69,4 +73,4 @@ public:
  * @brief SQL日志输出器
  * @todo Implement SqlAppender
  */
-class SqlAppender;
+// class SqlAppender;

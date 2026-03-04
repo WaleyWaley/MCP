@@ -12,7 +12,7 @@ LogEvent::LogEvent(std::string logger_name,
                     std::string thread_name,
                     time_t timestamp,
                     uint32_t co_id,
-                    std::source_location source_loc = std::source_location::current())
+                    std::source_location source_loc)
     : logger_name_(std::move(logger_name)),
       level_(level),
       elapse_(elapse),

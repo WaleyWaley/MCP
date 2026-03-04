@@ -29,24 +29,32 @@ auto RegisterItemFactoryFunc() -> std::unordered_map<std::string, ItemFactoryFun
 // 2. 有参工厂：生产需要字符串参数的 Item (如 %d{...} 日期, 普通字符串)
 // 格式：std::function<返回值类型(参数类型1, 参数类型2, ...)> 变量名;
 // 这个函数类型表示一个函数，它接受一个 std::string 参数，并返回一个智能指针，指向 PatternItemFacade 类型的对象。
-using StatusItemFactoryFunc() = std::function<Sptr<PatternItemFacade>(std::string)>;
+using StatusItemFactoryFunc = std::function<Sptr<PatternItemFacade>(std::string)>;
 
 // 注册有参工厂函数
 // 这个函数被调用时，会返回一个映射表，表里存着各种格式符对应的工厂函数
 // 比如 "%d" -> 生产 DateItem 的工厂函数
 auto RegisterStatusItemFactoryFunc() -> std::unordered_map<std::string, StatusItemFactoryFunc>;
 
-auto LogFormatter::startParse_ -> void ()
+void LogFormatter::startParse_()
 {
     // 最后的小括号意思是立即调用这个lambda表达式，并将返回值赋值给变量, 用lambda表达式初始化静态变量
     // 静态局部变量初始化 只会执行一次，第一次调用时初始化，后续调用时直接使用已初始化的值
+
+    // s_ProduceFuncMap1 放的是普通的单字符占位符
     static auto s_ProduceFuncMap1 = []() -> std::unordered_map<std::string, ItemFactoryFunc>{
         return RegisterItemFactoryFunc();
     }();
 
-    assert(s_ProduceFuncMap1.size() != 0);
+    // s_ProduceFuncMap2 放的是需要参数的占位符，主要是普通字符串和日期时间
+    static auto s_ProduceFuncMap2 = []() -> std::unordered_map<std::string, StatusItemFactoryFunc>{
+        return RegisterStatusItemFactoryFunc();
+    }();
 
-    auto normal_str = std::string{};
+    assert(s_ProduceFuncMap1.size() != 0);
+    assert(s_ProduceFuncMap2.size() != 0);
+
+    auto normal_str = std::string{};   
     auto state = ParseState::NORMAL;
 
     for(auto i = size_t {0}; i < pattern_.size();)
@@ -55,27 +63,20 @@ auto LogFormatter::startParse_ -> void ()
         {
             // 作用：把 % 之间的所有字符当作普通字符串处理。
             case ParseState::NORMAL: {
-                // 读取直到遇到 '%'
-                if(pattern_[i] != '%')
-                {
-                    // 遇到 %，先保存之前的普通字符串
-                    if(!normal_str.empty())
-                    {
-                        auto produce_func = s_ProduceFuncMap2["str"]    // 查表找 StringItem
+                if(pattern_[i] != '%') {
+                    normal_str.push_back(pattern_[i]);
+                    i++;
+                } else {
+                    if(!normal_str.empty()) {
+                        auto produce_func = s_ProduceFuncMap2["str"];
                         pattern_items_.push_back(produce_func(std::move(normal_str)));
                         normal_str.clear();
                     }
-                }
-                state = ParseState::PATTERN;
-                i++; // 消耗掉 '%' 这个字符，进入下一个状态
-                else
-                {
-                    // 普通字符，加入缓冲区
-                    normal_str.push_back(pattern_[i]);
-                    i++;    // 消耗掉普通字符
+                    state = ParseState::PATTERN;
+                    i++;
                 }
                 break;
-            } 
+            }
 
             case ParseState::PATTERN: {
                 // 获取 '%' 后面的那个字符
@@ -170,7 +171,9 @@ auto LogFormatter::format(std::ostream& os, const LogEvent& event) const -> size
 auto LogFormatter::format(const LogEvent& event) const -> std::string 
 {
     auto ss = std::ostringstream{};
-    std::ranges::for_each(pattern_items_,[&ss, &event](const Sptr<PatternItemFacade> item) -> void 
+    // std::ranges::for_each(pattern_items_,[&ss, &event](const Sptr<PatternItemFacade> item) -> void 
+    // 使用auto 避免Sptr类型报错
+    std::ranges::for_each(pattern_items_,[&ss, &event](const auto& item)
     {
         item->format(ss, event);
     });

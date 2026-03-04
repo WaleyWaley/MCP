@@ -1,8 +1,11 @@
 #pragma once
 
 #include "LogEvent.h"
+#include "common/alias.h"   // 自定义print
 #include <iostream>
-#include <print>
+#include <ostream>
+// #include <print>     // GCC 13不支持
+#include <format>
 
 
 /*=================================================PatternItemFacade==========================================*/
@@ -17,7 +20,7 @@ public:
     PatternItemFacade(const PatternItemFacade&) = default;
     PatternItemFacade(PatternItemFacade&&) = default;
 
-    vitual auto format(std::ostream& os, const LogEvent& event) -> size_t = 0;
+    virtual auto format(std::ostream& os, const LogEvent& event) -> size_t = 0;
 
     virtual ~PatternItemFacade() = default;
 };

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <chrono>
-#include <cstddef>
+#include <cstddef>  // for size_t
 #include <memory>
 
 /*========================标准库别名========================*/
@@ -20,6 +20,7 @@ using list = std::vector<T, Alloctor>;
 
 /*========================时间别名========================*/
 using Clock = std::chrono::steady_clock;
+
 template <typename Rep, typename Period>
 using TimeDuration = std::chrono::duration<Rep, Period>;
 
@@ -29,24 +30,25 @@ using Seconds = std::chrono::seconds;
 
 using SystemClock = std::chrono::system_clock;
 
-using ZoneTime = std::chrono::zoned_time;
+template <typename Duration = std::chrono::seconds>
+using ZoneTime = std::chrono::zoned_time<Duration>;
 
 /* ======================== 内存大小相关字面量 ======================== */
 // 基础类型：一个不可变的封装类，包含 uint64_t 值
 // 尽管字面量操作符可以直接返回 uint64_t，但使用一个封装类可以提供更好的类型安全性
 // 并且未来可以扩展操作符重载等功能。
-class ImmutabelMemorySize{
+class ImmutableMemorySize{
 private:
-    const size_t value;
+    const size_t value_;
 
 public:
     // 构造函数设为 constexpr, 使得对象可以在编译期构造
-    constexpr explicit ImuutabelMemorySize(uint64_t value) noexcept : value_{value} {}
+    constexpr explicit ImmutableMemorySize(uint64_t value) noexcept : value_{value} {}
      // 提供一个访问原始值的方法，最好也是 constexpr 和 const
     constexpr size_t count() const noexcept { return value_; }
     // 可以重载到 uint64_t 的隐式/显式转换，这里我们使用显式转换操作符
     constexpr operator size_t() const noexcept { return value_; }
-}
+};
 
 // 1. 字节 (Byte) 字面量: _b
 // 输入为 unsigned long long

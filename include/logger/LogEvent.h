@@ -32,13 +32,13 @@ public:
      * @param co_id 协程id
      * @param source_loc 源码位置信息
      */
-    LogEvent(std::string logger_name, LogLevel::Level level, uint32_t elapse, uint32_t thread_id, std::string thread_name, time_t timestamp, uint32_t co_id, std::source_location source_loc = std::source_location::current());
+    LogEvent(std::string logger_name, LogLevel level, uint32_t elapse, uint32_t thread_id, std::string thread_name, time_t timestamp, uint32_t co_id, std::source_location source_loc = std::source_location::current());
 
     ~LogEvent() = default;
 
     std::string_view getLoggerName() const & {return logger_name_;}
 
-    LogLevel::Level getLevel() const {return level_;}
+    LogLevel getLevel() const {return level_;}
 
     uint32_t getElapse() const {return elapse_;}
 
@@ -57,6 +57,8 @@ public:
     std::string getFilename() const {return source_loc_.file_name();}
 
     std::string getFunctionName() const {return source_loc_.function_name();}
+    
+    auto getLine() const -> uint32_t {return source_loc_.line();}
 
     template <typename... Args>
     void print(std::format_string<Args...> fmt, Args&&... args){
@@ -65,7 +67,7 @@ public:
 
 private:
     std::string logger_name_;
-    LogLevel::Level level_;
+    LogLevel level_;
     uint32_t elapse_;
     uint32_t thread_id_;
     std::string thread_name_;

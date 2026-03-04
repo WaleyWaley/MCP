@@ -1,4 +1,4 @@
-#include "include/LoggerAppender.h"
+#include "logger/LoggerAppender.h"
 #include "common/alias.h"
 #include <chrono>
 #include <filesystem>
@@ -18,7 +18,7 @@ void StdoutAppender::log(const LogFormatter& fmter, const LogEvent& event){
 RollingFileAppender::RollingFileAppender(std::string filename,
                                          size_t max_bytes,
                                          Seconds roll_interval)         
-    : filename_{std::move(filename)},
+    : filename_{std::move(filename)}
     , basename_{std::filesystem::path{filename_}.filename().string()}
     , max_bytes_{max_bytes_}
     , roll_interval_{roll_interval} { openFile_(); }
@@ -49,7 +49,7 @@ auto RollingFileAppender::openFile_() -> void{
         std::cerr << "---文件操作失败---" << std::endl;
         // e.what() 会输出你在 throw 时写的错误描述信息
         std::cerr << "错误描述(what()): " << e.what() << std::endl;
-        std::cerr << "错误代码(value): " << ec.value() << std::endl
+        std::cerr << "错误代码(value): " << ec.value() << std::endl;
         std::cerr << "错误类别(category): " << ec.category().name() << std::endl;
         throw std::system_error{ec};
     }
@@ -64,8 +64,8 @@ auto RollingFileAppender::openFile_() -> void{
     offset_ = filestream_.tellp();
 }
 
-auto RollingFileAppender::rollFile_() -> void{
-    if(not filestream_.isopen())
+void RollingFileAppender::rollFile_(){
+    if(not filestream_.is_open())
     {
         // 文件未打开，无法滚动,直接尝试打开新的文件
         openFile_();
@@ -78,11 +78,14 @@ auto RollingFileAppender::rollFile_() -> void{
 
     // 3. 重命名文件 (旧文件名 -> 新文件名)
     // 使用 std::rename 进行原子操作
-    if(std::rename(filename_.c_str(), new_filename.c_str()) != 0)
+    int ret = std::rename(filename_.c_str(), new_filename.c_str());
+    if(ret != 0)
     {
-        throw std::system_error{std::error_code{errno, std::system_category()}, "重命名日志文件失败", + filename_ + "->" + new_filename};
+        // 修正 system_error 调用
+        throw std::system_error(
+            std::error_code(errno, std::system_category()), " 重命名日志文件失败: " + filename_ + "->" + new_filename
+        );
     }
-
     // 4.打开一个新的日志文件
     return openFile_();
 }
@@ -103,6 +106,7 @@ auto RollingFileAppender::shouldRoll_() const -> bool
 }
 
 auto RollingFileAppender::getNewLogFileName_() const -> std::string{
+
     auto p = std::filesystem::path{filename_};
 
     // 1.获取文件名主体(不包含扩展名)和扩展名
@@ -110,8 +114,8 @@ auto RollingFileAppender::getNewLogFileName_() const -> std::string{
     auto extension = p.extension().string(); // 扩展名,对于 "app.log"，得到 ".log"
 
     // 2. 获取时间戳字符串
-    auto now = std::chrono::system_clock::time_point_cast<Seconds>(std::chrono::system_clock::now());
-    auto zone_time = std::chrono::zoned_time<Seconds>{std::chrono::current_zone(), now};
+    auto now = std::chrono::time_point_cast<Seconds>(SystemClock::now());
+    auto zone_time = ZoneTime<Seconds>{std::chrono::current_zone(), now};
     auto time_point_str = std::format("{:%Y-%m-%d_%H-%M-%S}", zone_time.get_local_time());
 
     // 3. 构建新的文件名: stem.YYYYMMDD-HHMMSS.extension
@@ -125,7 +129,7 @@ auto RollingFileAppender::getNewLogFileName_() const -> std::string{
     return (p.parent_path() / new_filename).string();
 }
 
-auto RollingFileAppender::log(const LogFormatter& fmt, const LogEvent& event) -> void {
+auto RollingFileAppender::log(const LogFormatter& fmter, const LogEvent& event) -> void {
     // 1.加锁，确保线程安全
     auto _ = std::lock_guard{mutex_};
 
