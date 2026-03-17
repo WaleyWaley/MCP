@@ -15,7 +15,7 @@ public:
     static auto format(std::ostream&os, const LogEvent& event) -> size_t 
     {
         std::streampos start = os.tellp();
-        os << event.getLoggerName();
+        os << event.getFunctionName();
         return static_cast<size_t>(os.tellp() - start);
     }
 };
@@ -29,7 +29,7 @@ public:
     static auto format(std::ostream& os, const LogEvent& event) -> size_t
     {
         std::streampos start = os.tellp();
-        os << event.getLoggerName();
+        os << event.getContent();
         return static_cast<size_t>(os.tellp() - start);
     }
 };
@@ -190,17 +190,15 @@ public:
     }
 private:
     std::string str_;
-}
+};
 
 using ItemFactoryFunc = std::function<Sptr<PatternItemFacade>()>;
 auto RegisterItemFactoryFunc() -> std::unordered_map<std::string, ItemFactoryFunc>{
-    auto func_map = std::unordered_map<std::string, ItemFactory>{
+    auto func_map = std::unordered_map<std::string, ItemFactoryFunc>{
 #define XX(str, ItemType) \
-        { \
-            #str,[]() -> Sptr<PatternItemFacade>{return Sptr<PatternItemFacade>{new PatternItemProxy<ItemType>{}}}; \
-        }
+    {#str, []() -> Sptr<PatternItemFacade>{return Sptr<PatternItemFacade>(new PatternItemProxy<ItemType>()); } }
         XX(m, MessageFormatItem),       // m:消息
-        XX(p, levelFormatItem),         // p:日志级别
+        XX(p, LevelFormatItem),         // p:日志级别
         XX(c, NameFormatItem),          // c:日志器名称
         XX(r, ElapseFormatItem),        // r:累计毫秒数
         XX(f, FilenameFormatItem),      // f:文件名
@@ -224,7 +222,6 @@ auto RegisterStatusItemFactoryFunc() -> std::unordered_map<std::string, StatusIt
 #define XX(str, ItemType) \
         { \
             #str, [](std::string sub_pattern) -> Sptr<PatternItemFacade>{ \
-                // std::make_shared<...>(...)在堆内存（Heap）里分配一块空间，创建这个对象。返回一个智能指针。
                 return std::static_pointer_cast<PatternItemFacade>(std::make_shared<PatternItemProxy<ItemType>>(sub_pattern)); \
             } \
         }

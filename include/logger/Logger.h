@@ -34,7 +34,7 @@ public:
 
     void addAppender(Sptr<AppenderFacade> appender);
 
-    void delAppender(Sptr<Appender> appender);
+    void delAppender(Sptr<AppenderFacade> appender);
 
     void clearAppender();
 

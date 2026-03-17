@@ -7,7 +7,9 @@
 #include <vector>
 #include <condition_variable>
 #include "common/util.hpp"
+#include <chrono>
 #include <latch>
+#include <ctime>
 
 class AsyncLogger : public Logger {
 public:

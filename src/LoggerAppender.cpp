@@ -1,11 +1,22 @@
 #include "logger/LoggerAppender.h"
 #include "common/alias.h"
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <sys/select.h>
 #include <system_error>
 #include <time.h>
+#include <sstream>
+#include <cstdio>
+#include <netinet/in.h>
+#include <cerrno>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
 /*=====================================LogAppender======================================*/
 
 /*===========================StdoutAppender==================*/
@@ -164,4 +175,358 @@ auto RollingFileAppender::log(const LogFormatter& fmter, const LogEvent& event) 
         last_flush_time_ = now;
         flush_count_ = 0;
     }
+}
+
+
+// SqlAppender实现
+
+SqlAppender::SqlAppender(std::string        table_name,
+                         SqlExecutor        executor,   
+                         size_t             batch_size,
+                         uint32_t           flush_interval_ms)
+    : table_name_{std::move(table_name)}
+    , executor_{std::move(executor)}
+    , batch_size_{batch_size}
+    , flush_interval_ms_{flush_interval_ms}
+{
+    // 预分配, 避免频繁rehash
+    pending_sqls_.reserve(batch_size_ * 2);
+
+    // 启动后台写入线程
+    worker_thread_ = std::thread{[this]{workerLoop_();}};
+} 
+
+SqlAppender::~SqlAppender()
+{
+    // 1.通知后台线程退出
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        stop_.store(true, std::memory_order_release);
+    }
+
+    cv_.notify_one();
+
+    if(worker_thread_.joinable())
+        worker_thread_.join();
+}
+
+// log() - 仅入队，不阻塞调用方
+void SqlAppender::log(const LogFormatter& fmter, const LogEvent& event)
+{
+    // 从event中提取结构化字段，构建 INSERT 语句
+    auto sql = buildInsertSql_(
+        table_name_,
+        std::string{LevelToString(event.getLevel())},
+        std::string{event.getLoggerName()},
+        event.getThreadId(),
+        event.getTime(),
+        event.getFilename(),
+        event.getLine(),
+        event.getContent()
+    );
+
+    {
+        std::unique_lock<std::mutex> lock{mutex_};
+        pending_sqls_.emplace_back(std::move(sql));
+    }
+
+    // 达到batch_size_时主动唤醒后台线程提前提交
+    if(pending_sqls_.size() >= batch_size_)
+        cv_.notify_one();
+}
+
+// 后台工作线程
+void SqlAppender::workerLoop_()
+{
+    while(true)
+    {
+        std::vector<std::string> batch;
+        batch.reserve(batch_size_); // 预分配内存
+
+        {
+            std::unique_lock<std::mutex> lock{mutex_};
+            // 等待：有数据 or 超时 or 停止信号
+            cv_.wait_for(lock, std::chrono::milliseconds{flush_interval_ms_},[this]{return !pending_sqls_.empty() || stop_.load(std::memory_order_acquire);});
+
+            // 将待处理 SQL swap 出来，尽快释放锁
+            batch.swap(pending_sqls_);
+        }
+
+        // 完全【无锁】状态下，从容落盘
+        if(!batch.empty())
+            flushBatch_(batch);
+
+        if(stop_.load(std::memory_order_acquire))
+        {
+            // 退出前最后一次打扫战场，防止在刚才 flushBatch_ 期间又有新数据进来
+            std::vector<std::string> remaining;
+            {
+                // 此时外面的锁早就释放了，这里重新加锁是绝对安全的
+                std::unique_lock<std::mutex> lock{mutex_};
+                remaining.swap(pending_sqls_);
+            } // 拿到最后的数据，立刻解锁
+
+            if(!remaining.empty())
+                flushBatch_(remaining);
+
+            break;
+        }
+    }
+}
+
+// 批量落盘函数
+void SqlAppender::flushBatch_(std::vector<std::string>& batch)
+{
+    for(auto& sql : batch)
+    {
+        try
+        {
+            executor_(sql);
+        }
+        catch(const std::exception& e)
+        {
+            // SQL 执行失败时输出到 stderr, 避免递归调用日志系统
+            std::fprintf(stderr, "[SqlAppender] executor threw: %s SQL: %s", e.what(), sql.c_str());
+        }
+        catch(...)
+        {
+            std::fprintf(stderr, "[SqlAppender] executor threw unknown exception.");
+        }
+    }
+}
+
+// SQL字符串转义：将单引号替换为两个单引号
+static auto escapeSqlString(const std::string& s) -> std::string
+{
+    std::string result;
+    result.reserve(s.size());
+    for(char c : s)
+    {
+        if(c=='\'') result += "''";
+        else        result += c;
+    }
+    return result;
+}
+
+auto SqlAppender::buildInsertSql_(const std::string& table,
+                                  const std::string& level,
+                                  const std::string& logger,
+                                  uint32_t           thread_id,
+                                  std::time_t        timestamp,
+                                  const std::string& file,
+                                  uint32_t           line,
+                                  const std::string& message) -> std::string
+{
+    return std::format(
+        "INSERT INTO {} (level, logger, thread_id, timestamp, file, line, message) "
+        "VALUES ('{}', '{}', {}, {}, '{}', {}, '{}');",
+        table,
+        escapeSqlString(level),
+        escapeSqlString(logger),
+        thread_id,
+        static_cast<long long>(timestamp),
+        escapeSqlString(file),
+        line,
+        escapeSqlString(message)
+    );
+}
+
+
+
+
+// SocketAppender 实现
+SocketAppender::SocketAppender(std::string host,
+                               uint16_t port,
+                               Protocol protocol,
+                               size_t   max_queue,
+                               uint32_t reconnect_interval_ms)
+    : host_{std::move(host)}
+    , port_{port}
+    , protocol_{protocol}
+    , max_queue_{max_queue}
+    , reconnect_interval_ms_{reconnect_interval_ms}
+{
+    // 解析目标地址(host 可为域名或 IP)
+    std::memset(&remote_addr_, 0, sizeof(remote_addr_));
+    remote_addr_.sin_family = AF_INET;
+    remote_addr_.sin_port   = htons(port_);
+
+    // 先尝试 inet_pton(纯IP字符串)
+    if(::inet_pton(AF_INET, host.c_str(), &remote_addr_.sin_addr) != 1)
+    {
+        // 非纯 IP， 尝试 DNS 解析
+        struct addrinfo hints{};
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = (protocol_ == Protocol::TCP) ? SOCK_STREAM : SOCK_DGRAM;
+
+        struct addrinfo* res = nullptr;
+
+        if(::getaddrinfo(host_.c_str(), nullptr, &hints, &res) == 0 and res)
+        {
+            auto* addr4 = reinterpret_cast<struct sockaddr_in*>(res->ai_addr);
+            remote_addr_.sin_addr = addr4->sin_addr;
+            ::freeaddrinfo(res);
+        }
+        else
+        {
+            std::fprintf(stderr, "{SocketAppender} Failed to resolve host: %s\n", host_.c_str());
+        }
+    }
+
+    // UDP:提前创建socket(无需connect)
+    if(protocol == Protocol::UDP)
+    {
+        sock_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if(sock_fd<0)
+            std::fprintf(stderr, "[SocketAppender] UDP socket() failed: %s\n", std::strerror(errno));
+    }
+
+    // 启动后台发送线程
+    worker_thread_ = std::thread{[this]{workerLoop_();}};
+}
+
+SocketAppender::~SocketAppender()
+{
+    {
+        auto lock = std::unique_lock{mutex_};
+        stop_.store(true, std::memory_order_release);
+    }
+    cv_.notify_one();
+
+    if(worker_thread_.joinable())
+        worker_thread_.join();
+
+    if(sock_fd >= 0)
+    {
+        ::close(sock_fd);
+        sock_fd = -1;
+    }
+}
+
+void SocketAppender::log(const LogFormatter& fmter, const LogEvent& event)
+{
+    std::string msg = fmter.format(event);
+
+    auto lock = std::unique_lock{mutex_};
+
+    // 队列满时丢弃最旧的消息，保证调用方不阻塞, 严苛的防御性约束：不管队列现在多肿，强制瘦身到 max_queue_ 以下
+    while(msg_queue_.size() >= max_queue_)
+        msg_queue_.pop();
+
+    msg_queue_.push(std::move(msg));
+    cv_.notify_one();
+}
+
+// 后台工作线程
+void SocketAppender::workerLoop_()
+{
+    while(true)
+    {
+        std::string msg;
+        {
+            auto lock = std::unique_lock{mutex_};
+            cv_.wait(lock,[this]{return !msg_queue_.empty() || stop_.load(std::memory_order_acquire);});
+            if(msg_queue_.empty())
+            {
+                // stop_ == true 且队列为空，正常退出
+                break;
+            }
+            msg = std::move(msg_queue_.front());
+            msg_queue_.pop();
+        }
+
+        // 在锁外执行网络 I/O
+        bool ok = false;
+        if(protocol_ == Protocol::TCP)
+            ok = sendTcp_(msg);
+        else
+            ok = sendUdp_(msg);
+
+        if(!ok)
+            std::fprintf(stderr, "[SocketAppender] Failed to send log message.\n");
+    }
+}
+
+// TCP: 连接/重连/发送
+
+auto SocketAppender::connectTcp_() -> int
+{
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if(fd < 0)
+    {
+        std::fprintf(stderr, "[SocketAppender] socket() failed: %s\n", std::strerror(errno));
+        return -1;
+    }
+    if(::connect(fd,
+                 reinterpret_cast<struct sockaddr*>(&remote_addr_),
+                 sizeof(remote_addr_)) != 0)
+    {
+        std::fprintf(stderr, "[SocketAppender] connect() to %s:%d failed: %s\n",
+                     host_.c_str(), port_, std::strerror(errno));
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+auto SocketAppender::ensureConnected_() -> int
+{
+    if(sock_fd >= 0)
+        return sock_fd;
+
+    // 尝试重连(简单退避：固定间隔)
+    sock_fd = connectTcp_();
+    if(sock_fd < 0)
+    {
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds{reconnect_interval_ms_}
+        );
+    }
+    return sock_fd;
+}
+
+auto SocketAppender::sendTcp_(const std::string& data) -> bool
+{
+    int fd = ensureConnected_();
+    if(fd < 0)
+        return false;
+
+    // 当前发送游标/指针
+    const char* ptr     = data.c_str();
+    // 剩余代发字节数
+    ssize_t     left    = static_cast<ssize_t>(data.size());
+
+    while(left > 0)
+    {
+        ssize_t sent = ::send(fd, ptr, static_cast<size_t>(left), MSG_NOSIGNAL);
+        // 发送失败
+        if(sent <= 0)
+        {
+            // 连接断开,关闭fd,下次重连
+            ::close(sock_fd);
+            sock_fd = -1;
+            return false;
+        }
+        // 发送成功，更新游标/指针
+        ptr     += sent;
+        left    -= sent;
+    }
+    return true;
+}
+
+// UDP: 直接 sendto
+auto SocketAppender::sendUdp_(const std::string& data) -> bool
+{
+    if(sock_fd < 0)
+        return false;
+
+    ssize_t sent = ::sendto(
+        sock_fd,
+        data.c_str(),
+        data.size(),
+        0,
+        reinterpret_cast<const struct sockaddr*> (&remote_addr_),
+        sizeof(remote_addr_)
+    );
+    return sent == static_cast<ssize_t>(data.size());
 }
