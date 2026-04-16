@@ -49,27 +49,18 @@ public:
 private:    
     // 日志名称
     std::string name_;
+
     // 日志级别
     LogLevel level_;
+
     // Appender集合
-    std::vector<Sptr<AppenderFacade>> appenders_;
+    std::vector<Sptr<AppenderFacade>> appenders_;       // 这里运用了类型擦除,vector里面存的是一个“皮”
+    
     // 自动日志器ID, inline static 可以在类内初始化
     inline static std::atomic<uint32_t> auto_logger_id_ = 0;
 };
 
 
-// 在测试时调用的就是封装好的这个log函数，Logger的log是不对外暴露的
-// inline void log(const Logger& logger, LogLevel loglevel, std::source_location source_info){
-//     logger.log(LogEvent {
-//         logger.getLoggerName(),
-//         loglevel,
-//         0,
-//         std::this_thread::get_id(),
-//         Curthr::GetName(),
-//         0,
-//         std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()),
-//         source_info});
-// }
 
 inline void log(const Logger& logger, LogLevel loglevel, std::source_location source_info = std::source_location::current()){
     uint32_t tid = static_cast<uint32_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()));

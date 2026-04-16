@@ -9,6 +9,8 @@
 #include <string.h>
 #include <chrono>
 #include <format>
+
+// 不同干活的Impl
 /* ======================================FormatterItem==============================*/
 class FunctionNameFormatItem {
 public:
@@ -85,7 +87,7 @@ public:
         os << event.getFiberId();
         return static_cast<size_t>(os.tellp() - start);
     }
-};
+// };
 
 /** @brief 线程名称 format */
 class ThreadNameFormatItem{

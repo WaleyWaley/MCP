@@ -20,6 +20,7 @@ public:
     PatternItemFacade(const PatternItemFacade&) = default;
     PatternItemFacade(PatternItemFacade&&) = default;
 
+    // 输入日志时间、输出流
     virtual auto format(std::ostream& os, const LogEvent& event) -> size_t = 0;
 
     virtual ~PatternItemFacade() = default;

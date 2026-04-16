@@ -27,7 +27,7 @@ public:
         , next_buffer_(std::make_unique<EventFixedBuffer<>>())
     {
         // 初始化备用缓冲列表，用于收集应用线程写满的缓冲
-        buffers_to_write_.reserve(16);
+        buffers_to_write_.reserve(25);
     }
 
     AsyncLogger(const AsyncLogger&)            = delete;
@@ -55,6 +55,7 @@ public:
             {
                 current_buffer_->append(std::move(event));
             }
+            // 如果缓冲区满了，则将当前缓冲区移入待写入列表
             else
             {
                 // 防止内存爆掉，直接丢弃当前日志
@@ -63,9 +64,9 @@ public:
                     std::cerr << "Too much events to write to buffers (buffers_to_write's size > 25)" << std::endl;
                     return;
                 }
-                //  缓冲区已满
+                //  先把当前满的存在待写列表，等待后台线程写入
                 buffers_to_write_.push_back(std::move(current_buffer_));
-                // 交换缓冲区逻辑
+                // 交换缓冲区逻辑。把下一个缓冲区转正，如果下一个缓冲区为空，则新建一个
                 if (next_buffer_)
                 {
                     // 如果有"备胎"，之间转正
@@ -98,7 +99,8 @@ public:
         running_ = true;
         // 启动子进程(员工), 让他去干活
         thread_ = std::thread(&AsyncLogger::threadFunc_, this);
-        // 老板卡在这里！ 死等！ 只要员工没有说“我好了！”, 老板决不让start()函数返回
+
+        // 主进程等待落盘完成
         latch_.wait();
     }
 
@@ -127,7 +129,7 @@ private:
         // 用于处理待写入的缓冲区
         auto buffers_to_process = std::vector<EventBufferPtr>{};
 
-        buffers_to_process.reserve(16); // 存放16个缓冲区
+        buffers_to_process.reserve(25); // 存放16个缓冲区
 
         // 员工死循环开始循环写日志
         while(running_)

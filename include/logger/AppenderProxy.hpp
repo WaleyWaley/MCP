@@ -6,21 +6,26 @@
 class LogFormatter;
 class LogEvent;
 
+
+// 用模板类接住所有满足 x.log(y,z);的类
+// 用concept来限制模板参数
 template<typename T>
-concept IsAppenderImpl = requires(T x, LogFormatter y, LogEvent z) {
-    x.log(y, z);
-};
+concept IsAppenderImpl = requires(T x, const LogFormatter& fmter, const LogEvent& event) {x.log(fmter, event); } -> std::same_as<void>; // 返回值是void
 
 /**
  * @brief thread-safe, actually a proxy of the concrete appender
  */
 
+// 也可以像下面这样写
 // template<IsAppenderImpl Impl>
 // requires IsAppenderImpl<Impl>
 template<IsAppenderImpl Impl>
 class AppenderProxy : public AppenderFacade {
 public:
+
     AppenderProxy(): formatter_{LogFormatter{}}{}
+
+
     AppenderProxy(const AppenderProxy&) = delete;
     AppenderProxy(AppenderProxy&&) = delete;
     auto operator=(const AppenderProxy&) -> AppenderProxy& = delete;
@@ -28,6 +33,7 @@ public:
 
     // 完美转发
     template <typename... Ts>
+    // 这里的Ts&&... 不是右值引用而是完美转发
     explicit AppenderProxy(LogFormatter fmter, Ts&&... ts) : formatter_(std::move(fmter)), impl_(std::forward<Ts>(ts)...){}
 
     // [[nodiscard]]意思是不要忽略我的返回值，如果调用者调用了这个函数，但是没有使用它的返回值。请务必给他一个警告。
