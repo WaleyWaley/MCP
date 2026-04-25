@@ -46,3 +46,7 @@ int main() {
     std::cout << "done. check async_main.log" << std::endl;
     return 0;
 }
+
+/*
+g++ -std=c++20 -pthread -Iinclude -I. src/main.cpp src/LogEvent.cpp src/LogLevel.cpp src/Logger.cpp -o /tmp/async_demo
+*/
