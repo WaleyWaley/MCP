@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <iostream>
 #include <sys/select.h>
 #include <system_error>
@@ -31,7 +32,7 @@ RollingFileAppender::RollingFileAppender(std::string filename,
                                          Seconds roll_interval)         
     : filename_{std::move(filename)}
     , basename_{std::filesystem::path{filename_}.filename().string()}
-    , max_bytes_{max_bytes_}
+    , max_bytes_{max_bytes}
     , roll_interval_{roll_interval} { openFile_(); }
 
 

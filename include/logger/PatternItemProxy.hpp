@@ -4,7 +4,11 @@
 #include <iostream>
 #include "common/util.hpp"
 
-template <typename ItemImpl>
+template<typename T>
+concept IsPatternImpl = requires(T x, const std::ostream& os, const LogEvent& event)
+{x.format(os, event);} -> std::same_as<size_t>; 
+
+template <IsPatternImpl PatternImpl>
 class PatternItemProxy : public PatternItemFacade{
 public:
 
@@ -16,5 +20,5 @@ public:
     auto format(std::ostream& os, const LogEvent& event) -> size_t override{ return item_.format(os, event);}
     
 private:
-    ItemImpl item_; // 干活的实例
+    PatternImpl item_; // 干活的实例
 };

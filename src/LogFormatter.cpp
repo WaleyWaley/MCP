@@ -10,9 +10,9 @@
 namespace{
 
 enum class ParseState{
-    NORMAL,
-    PATTERN,
-    SUBPATTERN
+    NORMAL,             // 普通字符串   比如 [ ] 空格
+    PATTERN,            // 简单格式符   比如 %m
+    SUBPATTERN          // 带参数格式符: 比如 %d{...}
 };
 
 }   //namespace
@@ -23,17 +23,13 @@ class PatternItemFacade;
 using ItemFactoryFunc = std::function<Sptr<PatternItemFacade>()>;
 
 // 注册无参工厂函数, 如果这个函数被调用，就会返回一个映射表，表里存着各种格式符对应的工厂函数
-// 比如 "%m" -> 生产 MessageItem 的工厂函数
 auto RegisterItemFactoryFunc() -> std::unordered_map<std::string, ItemFactoryFunc>;
 
+
 // 2. 有参工厂：生产需要字符串参数的 Item (如 %d{...} 日期, 普通字符串)
-// 格式：std::function<返回值类型(参数类型1, 参数类型2, ...)> 变量名;
-// 这个函数类型表示一个函数，它接受一个 std::string 参数，并返回一个智能指针，指向 PatternItemFacade 类型的对象。
 using StatusItemFactoryFunc = std::function<Sptr<PatternItemFacade>(std::string)>;
 
 // 注册有参工厂函数
-// 这个函数被调用时，会返回一个映射表，表里存着各种格式符对应的工厂函数
-// 比如 "%d" -> 生产 DateItem 的工厂函数
 auto RegisterStatusItemFactoryFunc() -> std::unordered_map<std::string, StatusItemFactoryFunc>;
 
 void LogFormatter::startParse_()
@@ -57,6 +53,8 @@ void LogFormatter::startParse_()
     auto normal_str = std::string{};   
     auto state = ParseState::NORMAL;
 
+    /** @brief 状态机解析器 */
+    // 这个pattern_格式大概是： "%d{%Y-%m-%d %H:%M:%S} [%p] %m %n"
     for(auto i = size_t {0}; i < pattern_.size();)
     {
         switch(state)
@@ -84,8 +82,12 @@ void LogFormatter::startParse_()
                 // 1. 检查是不是子模式 (例如 %d{...})
                 if (i+1 < pattern_.size() and pattern_[i+1] == '{')
                 {
+                    // 此时应该是 %d{...}
+                    //          ↑
                     state = ParseState::SUBPATTERN; // 切换状态去读取括号内的内容
                     i += 2; // 跳过格式符 (如'd') 和 '{' 两个字符
+                    // 此时应该是 %d{...}
+                    //             ↑
                     break;
                 }
                 
@@ -96,7 +98,7 @@ void LogFormatter::startParse_()
                     normal_str.push_back('%');
                     normal_str.push_back(c);
                     state = ParseState::NORMAL;
-                    i++; // 消耗掉这个无效的格式符
+                    i++; 
                     break;
                 }
                 // string(1,c)为什么要这么写？ 通常是为了把一个原本是单引号的字符（char），转换成双引号的字符串（string），以便和其他字符串进行拼接。
