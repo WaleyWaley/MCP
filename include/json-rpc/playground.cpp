@@ -59,6 +59,7 @@ auto build_mcp_response(int msg_id) -> std::string {
     // res["result"]["protocolVersion"]        = "2024-11-05";
     res["result"]["serverinfo"]["name"]     = "Jiang-Log-MCP-Server";
     res["result"]["serverinfo"]["version"]  = "1.0.0";
+    res["params"]["clientinfo"]["name"]     = "Cursor";
     // 空对象可以用json::object()表示
     res["result"]["capabilities"]["tools"]  = json::object();
 
